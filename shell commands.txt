@@ -1,0 +1,103 @@
+PS C:\Users\Aspire\project_dir> cd newsportal
+PS C:\Users\Aspire\project_dir\newsportal> python manage.py shell
+11 objects imported automatically (use -v 2 for details).
+
+Python 3.13.2 (tags/v3.13.2:4f8bb39, Feb  4 2025, 15:23:48) [MSC v.1942 64 bit (AMD64)] on win32
+Type "help", "copyright", "credits" or "license" for more information.
+(InteractiveConsole)
+>>> from django.contrib.auth.models import User
+>>> from news.models import Author, Category, Post, PostCategory, Comment
+>>> user1 = User.objects.create_user('ivanov', 'ivanov@example.com', 'password123')
+>>> user2 = User.objects.create_user('petrov', 'petrov@example.com', 'password123')
+>>> author1 = Author.objects.create(user=user1)
+>>> author2 = Author.objects.create(user=user2)
+>>> sport = Category.objects.create(name='Спорт')
+>>> politics = Category.objects.create(name='Политика')
+>>> education = Category.objects.create(name='Образование')
+>>> technology = Category.objects.create(name='Технологии')
+>>> article1 = Post.objects.create(
+...     author=author1,
+...     post_type=Post.ARTICLE,
+...     title='Футбольный матч',
+...     content='Вчера состоялся захватывающий футбольный матч между командами... ' * 20
+... )
+>>> 
+>>> article2 = Post.objects.create(
+...     author=author2,
+...     post_type=Post.ARTICLE,
+...     title='Новые методы обучения',
+...     content='Современные технологии позволяют использовать новые методы в образовании... ' * 20
+... )
+>>> 
+>>> news1 = Post.objects.create(
+...     author=author1,
+...     post_type=Post.NEWS,
+...     title='Выборы президента',
+...     content='Сегодня начались выборы президента страны... ' * 20
+... )
+>>> PostCategory.objects.create(post=article1, category=sport)
+<PostCategory: Футбольный матч - Спорт>
+>>> PostCategory.objects.create(post=article2, category=education)
+<PostCategory: Новые методы обучения - Образование>
+>>> PostCategory.objects.create(post=article2, category=technology)
+<PostCategory: Новые методы обучения - Технологии>
+>>> PostCategory.objects.create(post=news1, category=politics)
+<PostCategory: Выборы президента - Политика>
+>>> comment1 = Comment.objects.create(post=article1, user=user1, text='Отличная статья!')
+>>> comment2 = Comment.objects.create(post=article1, user=user2, text='Интересно написано')
+>>> comment3 = Comment.objects.create(post=article2, user=user1, text='Согласен с автором')
+>>> comment4 = Comment.objects.create(post=news1, user=user2, text='Важная новость')
+>>> article1.like()  # +1
+>>> article1.like()  # +1
+>>> article1.dislike()  # -1
+>>> 
+>>> article2.like()  # +1
+>>> article2.like()  # +1
+>>> article2.like()  # +1
+>>> 
+>>> news1.dislike()  # -1
+>>>
+>>> comment1.like()  # +1
+>>> comment1.like()  # +1
+>>> comment1.like()  # +1
+>>> 
+>>> comment2.dislike()  # -1
+>>> author1.update_rating()
+>>> author2.update_rating()
+>>> print("=== РЕЗУЛЬТАТЫ ===")
+=== РЕЗУЛЬТАТЫ ===
+>>> best_author = Author.objects.order_by('-rating').first()
+>>> print(f'Лучший автор: {best_author.user.username} с рейтингом {best_author.rating}')
+Лучший автор: petrov с рейтингом 8
+>>> best_post = Post.objects.order_by('-rating').first()
+>>> print(f'Лучший пост: "{best_post.title}" с рейтингом {best_post.rating}')
+Лучший пост: "Новые методы обучения" с рейтингом 3
+>>> print(f'Превью: {best_post.preview()}')
+Превью: Современные технологии позволяют использовать новые методы в образовании... Современные технологии позволяют использовать но...
+>>> print(f'\nКомментарии к лучшему посту:')
+
+Комментарии к лучшему посту:
+>>> for comment in Comment.objects.filter(post=best_post):
+...     print(f'- {comment.user.username}: {comment.text} (рейтинг: {comment.rating})')
+...
+- ivanov: Согласен с автором (рейтинг: 0)
+>>> print(f'\nРейтинги всех авторов:')
+
+Рейтинги всех авторов:
+>>> for author in Author.objects.all():
+...     print(f'- {author.user.username}: {author.rating}')
+...
+- ivanov: 5
+- petrov: 8
+>>> print(f'\nРейтинги всех постов:')
+
+Рейтинги всех постов:
+>>> for post in Post.objects.all():
+...     print(f'- {post.title}: {post.rating}')
+...
+- Футбольный матч: 1
+- Новые методы обучения: 3
+- Выборы президента: -1
+>>> exit()
+now exiting InteractiveConsole...
+PS C:\Users\Aspire\project_dir\newsportal> 
