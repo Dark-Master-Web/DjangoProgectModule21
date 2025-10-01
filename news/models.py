@@ -2,20 +2,17 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.db.models import Sum
 
-
 class Author(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     rating = models.IntegerField(default=0)
 
     def update_rating(self):
-        # Суммарный рейтинг каждой статьи автора умножается на 3
         post_rating = self.post_set.aggregate(post_rating_sum=Sum('rating'))['post_rating_sum'] or 0
         post_rating *= 3
 
-        # Суммарный рейтинг всех комментариев автора
         comment_rating = self.user.comment_set.aggregate(comment_rating_sum=Sum('rating'))['comment_rating_sum'] or 0
 
-        # Суммарный рейтинг всех комментариев к статьям автора
+        from .models import Comment
         post_comment_rating = Comment.objects.filter(post__author=self).aggregate(
             post_comment_rating_sum=Sum('rating')
         )['post_comment_rating_sum'] or 0
@@ -26,13 +23,11 @@ class Author(models.Model):
     def __str__(self):
         return self.user.username
 
-
 class Category(models.Model):
     name = models.CharField(max_length=100, unique=True)
 
     def __str__(self):
         return self.name
-
 
 class Post(models.Model):
     ARTICLE = 'AR'
@@ -64,14 +59,12 @@ class Post(models.Model):
     def __str__(self):
         return self.title
 
-
 class PostCategory(models.Model):
     post = models.ForeignKey(Post, on_delete=models.CASCADE)
     category = models.ForeignKey(Category, on_delete=models.CASCADE)
 
     def __str__(self):
         return f'{self.post.title} - {self.category.name}'
-
 
 class Comment(models.Model):
     post = models.ForeignKey(Post, on_delete=models.CASCADE)

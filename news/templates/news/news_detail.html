@@ -1,0 +1,37 @@
+{% extends 'default.html' %}
+
+{% block title %}{{ news.title }}{% endblock %}
+
+{% block content %}
+<article style="max-width: 800px; margin: 0 auto;">
+    <h1 style="color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 0.5rem;">
+        {{ news.title }}
+    </h1>
+
+    <div style="color: #666; margin-bottom: 2rem;">
+        <p>📅 Опубликовано: {{ news.created_at|date:"d.m.Y H:i" }}</p>
+        <p>👤 Автор: {{ news.author.user.username }}</p>
+        <p>★ Рейтинг: {{ news.rating }}</p>
+
+        {% if news.categories.all %}
+            <p>🏷️ Категории:
+                {% for category in news.categories.all %}
+                    <span style="background: #ecf0f1; padding: 0.2rem 0.5rem; border-radius: 3px; margin-right: 0.5rem;">
+                        {{ category.name }}
+                    </span>
+                {% endfor %}
+            </p>
+        {% endif %}
+    </div>
+
+    <div style="line-height: 1.8; font-size: 1.1rem; margin-bottom: 2rem;">
+        {{ news.content|linebreaks }}
+    </div>
+
+    <div style="margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #eee;">
+        <a href="{% url 'news_list' %}" style="display: inline-block; background: #7f8c8d; color: white; padding: 0.7rem 1.5rem; text-decoration: none; border-radius: 3px;">
+            ← Вернуться к списку новостей
+        </a>
+    </div>
+</article>
+{% endblock %}
