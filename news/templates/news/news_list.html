@@ -1,34 +1,44 @@
 {% extends 'default.html' %}
+{% load custom_filters %}
 
 {% block title %}Все новости{% endblock %}
 
 {% block content %}
 <h1>Последние новости</h1>
 
+<p><strong>Всего новостей: {{ news_list|length }}</strong></p>
+
 {% if news_list %}
-    <div class="news-list">
-        {% for news in news_list %}
-            <article style="border: 1px solid #ddd; padding: 1.5rem; margin-bottom: 1.5rem; border-radius: 5px; background: white;">
-                <h2 style="margin-top: 0;">
-                    <a href="{% url 'news_detail' news.id %}" style="text-decoration: none; color: #2c3e50;">
-                        {{ news.title }}
+    <table style="width: 100%; border-collapse: collapse; margin-top: 1rem;">
+        <thead>
+            <tr style="background-color: #34495e; color: white;">
+                <th style="padding: 12px; text-align: left; border: 1px solid #ddd;">Заголовок</th>
+                <th style="padding: 12px; text-align: center; border: 1px solid #ddd; width: 120px;">Дата</th>
+                <th style="padding: 12px; text-align: left; border: 1px solid #ddd;">Текст</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for news in news_list %}
+            <tr style="background-color: {% if forloop.counter|divisibleby:2 %}#f8f9fa{% else %}white{% endif %};">
+                <td style="padding: 12px; border: 1px solid #ddd;">
+                    <a href="{% url 'news_detail' news.id %}" style="text-decoration: none; color: #2c3e50; font-weight: bold;">
+                        {{ news.title|censor }}
                     </a>
-                </h2>
-                <p style="color: #666; font-size: 0.9rem;">
-                    📅 {{ news.created_at|date:"d.m.Y H:i" }} |
-                    👤 {{ news.author.user.username }} |
-                    ★ {{ news.rating }} |
-                    🏷️ {% for category in news.categories.all %}{{ category.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
-                </p>
-                <p>{{ news.preview }}</p>
-                <a href="{% url 'news_detail' news.id %}" style="display: inline-block; background: #3498db; color: white; padding: 0.5rem 1rem; text-decoration: none; border-radius: 3px;">
-                    Читать далее →
-                </a>
-            </article>
-        {% endfor %}
-    </div>
+                </td>
+                <td style="padding: 12px; border: 1px solid #ddd; text-align: center;">
+                    {{ news.created_at|date:"d.m.Y" }}
+                </td>
+                <td style="padding: 12px; border: 1px solid #ddd;">
+                    {{ news.content|truncatewords:20|censor }}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 {% else %}
-    <p>Новостей пока нет.</p>
-    <p><a href="/admin/news/post/add/">Добавить новость через админку</a></p>
+    <div style="text-align: center; padding: 2rem; background-color: #f8f9fa; border-radius: 5px; margin-top: 1rem;">
+        <p>Новостей пока нет.</p>
+        <p><a href="/admin/news/post/add/" style="color: #3498db;">Добавить новость через админку</a></p>
+    </div>
 {% endif %}
 {% endblock %}
