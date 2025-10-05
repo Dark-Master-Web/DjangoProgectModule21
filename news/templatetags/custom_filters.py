@@ -32,7 +32,10 @@ def censor(value):
     return censored_text
 
 
-
+@register.simple_tag
+def is_user_in_group(user, group_name):
+    """Проверяет, находится ли пользователь в указанной группе"""
+    return user.groups.filter(name=group_name).exists()
 
 
 
