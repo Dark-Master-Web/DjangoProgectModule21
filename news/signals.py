@@ -2,6 +2,7 @@ from django.db.models.signals import m2m_changed, post_save
 from django.dispatch import receiver
 from django.contrib.auth.models import User, Group
 from django.db import transaction
+from django.conf import settings
 from allauth.account.signals import user_signed_up
 from .models import Post
 
@@ -66,3 +67,46 @@ def check_post_categories_after_save(sender, instance, created, **kwargs):
     """
     if created:
         print(f"🔍 Пост создан: '{instance.title}', категории: {instance.categories.count()}")
+
+
+@receiver(post_save, sender=User)
+def handle_user_registration(sender, instance, created, **kwargs):
+    """
+    Обработка новой регистрации пользователя
+    """
+    if created and not instance.is_staff:  # Исключаем staff пользователей
+        print(f"🆕 Обработка регистрации пользователя: {instance.username}")
+
+        # Добавляем в группу common
+        common_group, created = Group.objects.get_or_create(name='common')
+        instance.groups.add(common_group)
+
+        # Импортируем здесь, чтобы избежать циклических импортов
+        from .models import ActivationToken
+        from .services.email_service import EmailService
+
+        # Создаем токен активации
+        activation_token = ActivationToken.create_token(instance)
+
+        # Формируем URL для активации
+        activation_url = f"{settings.SITE_URL}/accounts/activate/{activation_token.token}/"
+
+        # Отправляем приветственное письмо
+        EmailService.send_welcome_email(instance, activation_url)
+        print(f"📧 Приветственное письмо отправлено на {instance.email}")
+
+
+@receiver(post_save, sender='news.ActivationToken')  # Используем строку для избежания циклических импортов
+def handle_activation(sender, instance, **kwargs):
+    """
+    Обработка успешной активации аккаунта
+    """
+    if instance.activated:
+        print(f"✅ Аккаунт активирован: {instance.user.username}")
+
+        # Импортируем здесь, чтобы избежать циклических импортов
+        from .services.email_service import EmailService
+
+        # Отправляем письмо об успешной активации
+        EmailService.send_activation_success_email(instance.user)
+        print(f"📧 Письмо об успешной активации отправлено на {instance.user.email}")

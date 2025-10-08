@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.models import User
 from django.contrib.auth.admin import UserAdmin
-from .models import Author, Category, Post, PostCategory, Comment, Subscription
+from .models import Author, Category, Post, Comment, Subscription, ActivationToken, PostCategory
 
 
 @admin.register(Author)
@@ -158,3 +158,16 @@ admin.site.register(Category, CustomCategoryAdmin)
 # Опционально: раскомментировать если хотите видеть подписки в админке пользователей
 # admin.site.unregister(User)
 # admin.site.register(User, CustomUserAdmin)
+
+@admin.register(ActivationToken)
+class ActivationTokenAdmin(admin.ModelAdmin):
+    list_display = ['user', 'token', 'created_at', 'activated', 'is_expired']
+    list_filter = ['activated', 'created_at']
+    search_fields = ['user__username', 'token']
+    readonly_fields = ['created_at']
+
+    def is_expired(self, obj):
+        return obj.is_expired()
+
+    is_expired.boolean = True
+    is_expired.short_description = 'Истек'

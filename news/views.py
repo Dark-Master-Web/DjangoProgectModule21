@@ -1,5 +1,5 @@
 from django.shortcuts import render, get_object_or_404, redirect
-from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
+from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView, TemplateView
 from django.urls import reverse_lazy
 from django.core.paginator import Paginator
 from django.contrib.auth.models import Group, Permission
@@ -355,3 +355,72 @@ class ArticleDelete(PermissionRequiredMixinWithMessage, AuthRequiredMixin, Delet
         context = super().get_context_data(**kwargs)
         context['categories'] = Category.objects.all()
         return context
+
+
+class ActivationView(TemplateView):
+    template_name = 'accounts/activation.html'
+
+    def get(self, request, token, *args, **kwargs):
+        context = self.get_context_data(**kwargs)
+
+        try:
+            activation_token = ActivationToken.objects.get(token=token)
+
+            if activation_token.is_expired():
+                context['status'] = 'expired'
+                context['message'] = 'Ссылка активации устарела. Пожалуйста, запросите новую.'
+            elif activation_token.activated:
+                context['status'] = 'already_activated'
+                context['message'] = 'Аккаунт уже был активирован ранее.'
+            else:
+                # Активируем аккаунт
+                activation_token.activated = True
+                activation_token.save()
+
+                # Активируем пользователя
+                user = activation_token.user
+                user.is_active = True
+                user.save()
+
+                context['status'] = 'success'
+                context['message'] = 'Аккаунт успешно активирован! Теперь вы можете войти в систему.'
+                context['username'] = user.username
+
+        except ActivationToken.DoesNotExist:
+            context['status'] = 'invalid'
+            context['message'] = 'Неверная ссылка активации. Пожалуйста, проверьте правильность ссылки.'
+
+        return self.render_to_response(context)
+
+
+@login_required
+def resend_activation_email(request):
+    """
+    Повторная отправка письма активации
+    """
+    try:
+        activation_token = ActivationToken.objects.get(user=request.user)
+
+        if activation_token.activated:
+            messages.info(request, 'Ваш аккаунт уже активирован.')
+        elif activation_token.is_expired():
+            # Создаем новый токен
+            activation_token.delete()
+            new_token = ActivationToken.create_token(request.user)
+            activation_url = f"{settings.SITE_URL}/accounts/activate/{new_token.token}/"
+            EmailService.send_welcome_email(request.user, activation_url)
+            messages.success(request, 'Новое письмо активации отправлено на ваш email.')
+        else:
+            # Отправляем существующий токен
+            activation_url = f"{settings.SITE_URL}/accounts/activate/{activation_token.token}/"
+            EmailService.send_welcome_email(request.user, activation_url)
+            messages.success(request, 'Письмо активации отправлено на ваш email.')
+
+    except ActivationToken.DoesNotExist:
+        # Создаем новый токен, если по какой-то причине его нет
+        new_token = ActivationToken.create_token(request.user)
+        activation_url = f"{settings.SITE_URL}/accounts/activate/{new_token.token}/"
+        EmailService.send_welcome_email(request.user, activation_url)
+        messages.success(request, 'Письмо активации отправлено на ваш email.')
+
+    return redirect('profile')  # или другая подходящая страница

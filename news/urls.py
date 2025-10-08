@@ -25,4 +25,8 @@ urlpatterns = [
 
     # Авторство
     path('become-author/', views.become_author, name='become_author'),
+
+    # Активация аккаунта
+    path('accounts/activate/<str:token>/', views.ActivationView.as_view(), name='activate_account'),
+    path('accounts/resend-activation/', views.resend_activation_email, name='resend_activation'),
 ]
