@@ -8,15 +8,13 @@ from django.contrib.auth.mixins import UserPassesTestMixin, PermissionRequiredMi
 from django.contrib.contenttypes.models import ContentType
 from django.contrib import messages
 
-from .models import Post, Author
+from .models import Post, Author, Category, Subscription
 from .filters import PostFilter
 from .forms import PostForm
 from .mixins import AuthRequiredMixin
 
 
-# 🆕 Сначала определим все миксины
 class PermissionRequiredMixinWithMessage(PermissionRequiredMixin):
-    """Миксин для проверки прав с пользовательскими сообщениями"""
     permission_denied_message = "У вас недостаточно прав для доступа к этой странице."
 
     def handle_no_permission(self):
@@ -25,7 +23,6 @@ class PermissionRequiredMixinWithMessage(PermissionRequiredMixin):
 
 
 class AuthorRequiredMixin(UserPassesTestMixin):
-    """Миксин для проверки что пользователь в группе authors"""
     permission_denied_message = "Только авторы могут создавать и редактировать контент."
 
     def test_func(self):
@@ -36,30 +33,155 @@ class AuthorRequiredMixin(UserPassesTestMixin):
         return redirect('news_list')
 
 
+# 🆕 Функции для работы с подписками (С ОТЛАДКОЙ)
+@login_required
+def subscribe_to_category(request, category_id):
+    """Подписка на категорию"""
+    print(f"🔔 ЗАПРОС НА ПОДПИСКУ: пользователь={request.user.username}, категория_id={category_id}")
+
+    category = get_object_or_404(Category, id=category_id)
+    print(f"📦 Найдена категория: {category.name}")
+
+    # Проверяем существующие подписки
+    existing_subscription = Subscription.objects.filter(
+        user=request.user,
+        category=category
+    ).exists()
+    print(f"📊 Подписка уже существует: {existing_subscription}")
+
+    subscription, created = Subscription.objects.get_or_create(
+        user=request.user,
+        category=category
+    )
+
+    if created:
+        print(f"✅ СОЗДАНА НОВАЯ ПОДПИСКА: {request.user.username} -> {category.name}")
+        messages.success(request, f'✅ Вы успешно подписались на категорию "{category.name}"!')
+    else:
+        print(f"ℹ️ ПОДПИСКА УЖЕ СУЩЕСТВУЕТ: {request.user.username} -> {category.name}")
+        messages.info(request, f'ℹ️ Вы уже подписаны на категорию "{category.name}"')
+
+    # Проверяем общее количество подписок пользователя
+    user_subscriptions_count = Subscription.objects.filter(user=request.user).count()
+    print(f"📈 Всего подписок у пользователя: {user_subscriptions_count}")
+
+    return redirect('category_posts', category_id=category_id)
+
+
+@login_required
+def unsubscribe_from_category(request, category_id):
+    """Отписка от категории"""
+    print(f"🔔 ЗАПРОС НА ОТПИСКУ: пользователь={request.user.username}, категория_id={category_id}")
+
+    category = get_object_or_404(Category, id=category_id)
+    print(f"📦 Найдена категория: {category.name}")
+
+    # Проверяем существующие подписки перед удалением
+    subscription_exists = Subscription.objects.filter(
+        user=request.user,
+        category=category
+    ).exists()
+    print(f"📊 Подписка найдена для удаления: {subscription_exists}")
+
+    deleted_count = Subscription.objects.filter(
+        user=request.user,
+        category=category
+    ).delete()[0]
+
+    if deleted_count > 0:
+        print(f"❌ ПОДПИСКА УДАЛЕНА: {request.user.username} -> {category.name}")
+        messages.success(request, f'❌ Вы отписались от категории "{category.name}"')
+    else:
+        print(f"⚠️ ПОДПИСКА НЕ НАЙДЕНА: {request.user.username} -> {category.name}")
+        messages.warning(request, f'⚠️ Вы не были подписаны на категорию "{category.name}"')
+
+    # Проверяем общее количество подписок пользователя после удаления
+    user_subscriptions_count = Subscription.objects.filter(user=request.user).count()
+    print(f"📈 Всего подписок у пользователя после отписки: {user_subscriptions_count}")
+
+    return redirect('category_posts', category_id=category_id)
+
+
+@login_required
+def my_subscriptions(request):
+    """Страница с подписками пользователя"""
+    print(f"🔔 ЗАПРОС МОИ ПОДПИСКИ: пользователь={request.user.username}")
+
+    subscriptions = Subscription.objects.filter(user=request.user).select_related('category')
+    print(f"📋 Найдено подписок: {subscriptions.count()}")
+
+    for sub in subscriptions:
+        print(f"   - {sub.category.name} (подписка с {sub.subscribed_at})")
+
+    context = {
+        'subscriptions': subscriptions,
+        'categories': Category.objects.all()
+    }
+    return render(request, 'news/my_subscriptions.html', context)
+
+
+def category_posts(request, category_id):
+    """Страница с постами категории"""
+    print(
+        f"🔔 ЗАПРОС КАТЕГОРИЯ: категория_id={category_id}, пользователь={request.user.username if request.user.is_authenticated else 'неавторизован'}")
+
+    category = get_object_or_404(Category, id=category_id)
+    print(f"📦 Категория: {category.name}")
+
+    posts = Post.objects.filter(categories=category).order_by('-created_at')
+    print(f"📄 Постов в категории: {posts.count()}")
+
+    paginator = Paginator(posts, 10)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    is_subscribed = False
+    if request.user.is_authenticated:
+        is_subscribed = Subscription.objects.filter(
+            user=request.user,
+            category=category
+        ).exists()
+        print(f"👤 Статус подписки пользователя: {is_subscribed}")
+    else:
+        print("👤 Пользователь не аутентифицирован")
+
+    context = {
+        'category': category,
+        'page_obj': page_obj,
+        'is_subscribed': is_subscribed,
+        'categories': Category.objects.all()
+    }
+    return render(request, 'news/category_posts.html', context)
+
+
 # 🆕 Функция для добавления в авторы
 @login_required
 def become_author(request):
-    """Добавляет пользователя в группу authors и назначает права"""
-    authors_group, created = Group.objects.get_or_create(name='authors')
+    """Добавляет пользователя в группу authors"""
+    print(f"🔔 ЗАПРОС СТАТЬ АВТОРОМ: пользователь={request.user.username}")
 
-    # Получаем права для модели Post
+    authors_group, created = Group.objects.get_or_create(name='authors')
+    print(f"📋 Группа authors: {'создана' if created else 'уже существует'}")
+
     content_type = ContentType.objects.get_for_model(Post)
     post_permissions = Permission.objects.filter(content_type=content_type)
+    print(f"🔐 Найдено прав для модели Post: {post_permissions.count()}")
 
-    # Добавляем права к группе authors
     authors_group.permissions.set(post_permissions)
+    print(f"✅ Права назначены группе authors")
 
     if not request.user.groups.filter(name='authors').exists():
         request.user.groups.add(authors_group)
+        print(f"🎉 ПОЛЬЗОВАТЕЛЬ ДОБАВЛЕН В АВТОРЫ: {request.user.username}")
         messages.success(request, 'Поздравляем! Теперь вы автор и можете создавать новости и статьи.')
-        print(f"Пользователь {request.user.email} добавлен в группу authors с правами на Post")
     else:
+        print(f"ℹ️ ПОЛЬЗОВАТЕЛЬ УЖЕ АВТОР: {request.user.username}")
         messages.info(request, 'Вы уже являетесь автором.')
 
     return redirect('news_list')
 
 
-# Затем остальные представления
+# 🆕 ОБНОВЛЕННЫЕ КЛАССЫ-ПРЕДСТАВЛЕНИЯ С КАТЕГОРИЯМИ
 class NewsList(ListView):
     model = Post
     template_name = 'news/news_list.html'
@@ -69,6 +191,13 @@ class NewsList(ListView):
     def get_queryset(self):
         return Post.objects.filter(post_type=Post.NEWS).order_by('-created_at')
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['categories'] = Category.objects.all()
+        print(
+            f"📰 Страница новостей: {context['news_list'].count()} новостей, {context['categories'].count()} категорий")
+        return context
+
 
 class NewsDetail(DetailView):
     model = Post
@@ -77,6 +206,21 @@ class NewsDetail(DetailView):
 
     def get_queryset(self):
         return Post.objects.filter(post_type=Post.NEWS)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['categories'] = Category.objects.all()
+
+        # Добавляем информацию о подписках пользователя
+        if self.request.user.is_authenticated:
+            post_categories = self.object.categories.all()
+            user_subscriptions = Subscription.objects.filter(
+                user=self.request.user,
+                category__in=post_categories
+            ).values_list('category_id', flat=True)
+            context['user_subscribed_categories'] = list(user_subscriptions)
+            print(f"📖 Детали новости: '{self.object.title}', подписан на категории: {len(user_subscriptions)}")
+        return context
 
 
 class NewsSearch(ListView):
@@ -93,22 +237,33 @@ class NewsSearch(ListView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['filterset'] = self.filterset
+        context['categories'] = Category.objects.all()
+        print(f"🔍 Поиск новостей: найдено {context['news_list'].count()} результатов")
         return context
 
 
-# 🆕 Обновленные CRUD представления с проверкой прав
+# 🆕 ОБНОВЛЕННЫЕ CRUD ПРЕДСТАВЛЕНИЯ
 class NewsCreate(PermissionRequiredMixinWithMessage, AuthRequiredMixin, CreateView):
     form_class = PostForm
     model = Post
     template_name = 'news/news_edit.html'
-    permission_required = 'news.add_post'  # Право на создание новостей
+    permission_required = 'news.add_post'
 
     def form_valid(self, form):
         post = form.save(commit=False)
         post.post_type = Post.NEWS
-        return super().form_valid(form)
+        author, created = Author.objects.get_or_create(user=self.request.user)
+        post.author = author
+        response = super().form_valid(form)
+
+        # 🆕 Отправляем уведомления после успешного сохранения формы
+        print(f"📝 Пост создан, отправляем уведомления для ID: {self.object.pk}")
+        self.object.send_notifications_to_subscribers()
+
+        return response
 
     def get_success_url(self):
+        messages.success(self.request, 'Новость успешно создана! Подписчики получат уведомления.')
         return reverse_lazy('news_detail', kwargs={'pk': self.object.pk})
 
 
@@ -116,7 +271,7 @@ class NewsUpdate(PermissionRequiredMixinWithMessage, AuthRequiredMixin, UpdateVi
     form_class = PostForm
     model = Post
     template_name = 'news/news_edit.html'
-    permission_required = 'news.change_post'  # Право на редактирование новостей
+    permission_required = 'news.change_post'
 
     def get_queryset(self):
         return Post.objects.filter(post_type=Post.NEWS)
@@ -124,29 +279,48 @@ class NewsUpdate(PermissionRequiredMixinWithMessage, AuthRequiredMixin, UpdateVi
     def get_success_url(self):
         return reverse_lazy('news_detail', kwargs={'pk': self.object.pk})
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['categories'] = Category.objects.all()
+        return context
+
 
 class NewsDelete(PermissionRequiredMixinWithMessage, AuthRequiredMixin, DeleteView):
     model = Post
     template_name = 'news/news_delete.html'
     success_url = reverse_lazy('news_list')
-    permission_required = 'news.delete_post'  # Право на удаление новостей
+    permission_required = 'news.delete_post'
 
     def get_queryset(self):
         return Post.objects.filter(post_type=Post.NEWS)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['categories'] = Category.objects.all()
+        return context
 
 
 class ArticleCreate(PermissionRequiredMixinWithMessage, AuthRequiredMixin, CreateView):
     form_class = PostForm
     model = Post
     template_name = 'news/article_edit.html'
-    permission_required = 'news.add_post'  # Право на создание статей
+    permission_required = 'news.add_post'
 
     def form_valid(self, form):
         post = form.save(commit=False)
         post.post_type = Post.ARTICLE
-        return super().form_valid(form)
+        author, created = Author.objects.get_or_create(user=self.request.user)
+        post.author = author
+        response = super().form_valid(form)
+
+        # 🆕 Отправляем уведомления после успешного сохранения формы
+        print(f"📄 Статья создана, отправляем уведомления для ID: {self.object.pk}")
+        self.object.send_notifications_to_subscribers()
+
+        return response
 
     def get_success_url(self):
+        messages.success(self.request, 'Статья успешно создана! Подписчики получат уведомления.')
         return reverse_lazy('news_detail', kwargs={'pk': self.object.pk})
 
 
@@ -154,7 +328,7 @@ class ArticleUpdate(PermissionRequiredMixinWithMessage, AuthRequiredMixin, Updat
     form_class = PostForm
     model = Post
     template_name = 'news/article_edit.html'
-    permission_required = 'news.change_post'  # Право на редактирование статей
+    permission_required = 'news.change_post'
 
     def get_queryset(self):
         return Post.objects.filter(post_type=Post.ARTICLE)
@@ -162,12 +336,22 @@ class ArticleUpdate(PermissionRequiredMixinWithMessage, AuthRequiredMixin, Updat
     def get_success_url(self):
         return reverse_lazy('news_detail', kwargs={'pk': self.object.pk})
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['categories'] = Category.objects.all()
+        return context
+
 
 class ArticleDelete(PermissionRequiredMixinWithMessage, AuthRequiredMixin, DeleteView):
     model = Post
     template_name = 'news/article_delete.html'
     success_url = reverse_lazy('news_list')
-    permission_required = 'news.delete_post'  # Право на удаление статей
+    permission_required = 'news.delete_post'
 
     def get_queryset(self):
         return Post.objects.filter(post_type=Post.ARTICLE)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['categories'] = Category.objects.all()
+        return context

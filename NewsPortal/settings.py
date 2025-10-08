@@ -7,9 +7,9 @@ SECRET_KEY = 'django-insecure-your-secret-key-here'
 DEBUG = True
 ALLOWED_HOSTS = []
 
-LOGIN_URL = '/accounts/login/'  # Куда перенаправлять неавторизованных пользователей
-LOGIN_REDIRECT_URL = '/news/'   # Куда перенаправлять после успешного входа
-LOGOUT_REDIRECT_URL = '/news/'  # Куда перенаправлять после выхода
+LOGIN_URL = '/accounts/login/'
+LOGIN_REDIRECT_URL = '/news/'
+LOGOUT_REDIRECT_URL = '/news/'
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -19,13 +19,15 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.sites',
+
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
     'allauth.socialaccount.providers.google',
+    'allauth.socialaccount.providers.yandex',
     'django_filters',
+
     'news',
-    'allauth.socialaccount.providers.yandex'
 ]
 
 MIDDLEWARE = [
@@ -58,38 +60,33 @@ TEMPLATES = [
 ]
 
 AUTHENTICATION_BACKENDS = [
-    # Allauth бекенды
     'django.contrib.auth.backends.ModelBackend',
     'allauth.account.auth_backends.AuthenticationBackend',
 ]
 
-# Настройки Allauth
 SITE_ID = 1
 
-ACCOUNT_LOGIN_METHODS = {'username', 'email'}  # Вход по username или email
-ACCOUNT_SIGNUP_FIELDS = ['username*', 'email*', 'password1*', 'password2*']  # С username
-
-# Настройки email
+ACCOUNT_LOGIN_METHODS = {'username', 'email'}
+ACCOUNT_SIGNUP_FIELDS = ['username*', 'email*', 'password1*', 'password2*']
 ACCOUNT_UNIQUE_EMAIL = True
-ACCOUNT_EMAIL_VERIFICATION = 'optional'  # 'mandatory', 'optional', or 'none'
+ACCOUNT_EMAIL_VERIFICATION = 'optional'
 ACCOUNT_CONFIRM_EMAIL_ON_GET = True
 ACCOUNT_EMAIL_CONFIRMATION_EXPIRE_DAYS = 1
 ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True
+ACCOUNT_LOGOUT_ON_GET = True
+ACCOUNT_LOGOUT_REDIRECT_URL = '/news/'
+ACCOUNT_SESSION_REMEMBER = True
 
-# Дополнительные настройки
-ACCOUNT_LOGOUT_ON_GET = True  # Выход при GET запросе на /accounts/logout/
-ACCOUNT_LOGOUT_REDIRECT_URL = '/news/'  # Перенаправление после выхода
-ACCOUNT_SESSION_REMEMBER = True  # Запоминать пользователя
-
-# Настройки форм
 ACCOUNT_FORMS = {
     'login': 'allauth.account.forms.LoginForm',
     'signup': 'allauth.account.forms.SignupForm',
     'reset_password': 'allauth.account.forms.ResetPasswordForm',
 }
 
-# Настройки email (для разработки)
+# 🆕 НАСТРОЙКИ EMAIL ДЛЯ СИСТЕМЫ ПОДПИСОК
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+SITE_URL = 'http://127.0.0.1:8000'
+
 
 DATABASES = {
     'default': {
@@ -105,3 +102,7 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# 🆕 Опционально: если хотите использовать медиа файлы
+# MEDIA_URL = '/media/'
+# MEDIA_ROOT = BASE_DIR / 'media'
