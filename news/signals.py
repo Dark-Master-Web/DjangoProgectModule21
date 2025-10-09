@@ -199,7 +199,7 @@ def handle_new_subscription(sender, instance, created, **kwargs):
     """
     if created:
         logger.info(f"📩 Новая подписка: {instance.user.username} -> {instance.category.name}")
-
+        print(f"🎯 сигнал: новая подписка создана - {instance.user.username} -> {instance.category.name}")
         # Инвалидация кэша подписок
         cache.delete(f"user_{instance.user.id}_subscriptions")
         cache.delete(f"category_{instance.category.id}_subscribers_count")
