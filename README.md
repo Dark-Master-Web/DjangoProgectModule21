@@ -3,38 +3,33 @@
 News Portal - это полнофункциональный новостной портал с современной системой управления контентом, реализованный на Django. Проект включает расширенную систему подписок, email-уведомления, еженедельные дайджесты, многоуровневую аутентификацию и мощную административную панель.
 
 🌳 Полное дерево структуры проекта
-text
-DjangoProgectModule21/
-├── 📁 NewsPortal/                          # Настройки проекта
+```
+djangoprojectmodule21/
+├── newsportal/                    # настройки проекта django
 │   ├── __init__.py
-│   ├── settings.py                        # Основные настройки
-│   ├── urls.py                           # Главные URL маршруты
+│   ├── settings.py               # основные настройки
+│   ├── urls.py                   # главные url маршруты
 │   ├── asgi.py
 │   └── wsgi.py
-│
-├── 📁 news/                               # Основное приложение
-│   ├── 📁 migrations/                     # Миграции базы данных
+├── news/                         # основное приложение новостей
+│   ├── migrations/               # миграции базы данных
 │   │   └── __init__.py
-│   │
-│   ├── 📁 services/                       # Сервисный слой
+│   ├── services/                 # сервисный слой
 │   │   ├── __init__.py
-│   │   └── email_service.py              # Сервис отправки email
-│   │
-│   ├── 📁 management/                     # Management commands
+│   │   └── email_service.py      # сервис отправки email
+│   ├── management/               # management commands
 │   │   ├── __init__.py
-│   │   └── 📁 commands/
+│   │   └── commands/
 │   │       ├── __init__.py
-│   │       ├── send_weekly_digest.py     # Команда еженедельной рассылки
-│   │       └── show_structure.py         # Показать структуру проекта
-│   │
-│   ├── 📁 templates/                      # Шаблоны приложения
-│   │   ├── 📁 account/                   # Шаблоны аутентификации
+│   │       ├── send_weekly_digest.py    # команда еженедельной рассылки
+│   │       └── show_structure.py        # показать структуру проекта
+│   ├── templates/                # шаблоны приложения
+│   │   ├── account/              # шаблоны аутентификации
 │   │   │   ├── activation.html
 │   │   │   ├── base.html
 │   │   │   ├── login.html
 │   │   │   └── signup.html
-│   │   │
-│   │   ├── 📁 emails/                    # Шаблоны писем
+│   │   ├── emails/               # шаблоны писем
 │   │   │   ├── activation_success.html
 │   │   │   ├── activation_success.txt
 │   │   │   ├── new_article_notification.html
@@ -45,8 +40,7 @@ DjangoProgectModule21/
 │   │   │   ├── weekly_digest.txt
 │   │   │   ├── welcome_email.html
 │   │   │   └── welcome_email.txt
-│   │   │
-│   │   └── 📁 news/                      # Шаблоны новостей
+│   │   └── news/                 # шаблоны новостей
 │   │       ├── article_delete.html
 │   │       ├── article_edit.html
 │   │       ├── category_posts.html
@@ -59,43 +53,39 @@ DjangoProgectModule21/
 │   │       ├── news_edit.html
 │   │       ├── news_list.html
 │   │       └── news_search.html
-│   │
-│   ├── 📁 templatetags/                  # Кастомные теги шаблонов
+│   ├── templatetags/             # кастомные теги шаблонов
 │   │   ├── custom_filters.py
 │   │   ├── group_tags.py
 │   │   └── uniy.py
-│   │
 │   ├── __init__.py
-│   ├── admin.py                          # Админ-панель
-│   ├── apps.py                           # Конфигурация приложения
-│   ├── context_processors.py             # Контекстные процессоры
-│   ├── filters.py                        # Фильтры для поиска
-│   ├── forms.py                          # Формы Django
-│   ├── mixins.py                         # Кастомные миксины
-│   ├── models.py                         # Модели данных
-│   ├── signals.py                        # Сигналы Django
-│   ├── tests.py                          # Тесты
-│   ├── urls.py                           # URL маршруты приложения
-│   └── views.py                          # Представления
-│
-├── 📁 templates/                         # Глобальные шаблоны
-│   ├── default.html                      # Основной шаблон
-│   └── 📁 registration/
+│   ├── admin.py                  # админ-панель
+│   ├── apps.py                   # конфигурация приложения
+│   ├── context_processors.py     # контекстные процессоры
+│   ├── filters.py                # фильтры для поиска
+│   ├── forms.py                  # формы django
+│   ├── mixins.py                 # кастомные миксины
+│   ├── models.py                 # модели данных
+│   ├── signals.py                # сигналы django
+│   ├── tests.py                  # тесты
+│   ├── urls.py                   # url маршруты приложения
+│   └── views.py                  # представления
+├── templates/                    # глобальные шаблоны
+│   ├── default.html              # основной шаблон
+│   └── registration/
 │       └── login.html
-│
-├── 📁 static/                            # Статические файлы
-│   ├── 📁 css/
+├── static/                       # статические файлы
+│   ├── css/
 │   │   └── styles.css
-│   ├── 📁 js/
-│   └── 📁 images/
-│
-├── 📄 manage.py                          # Управляющий скрипт Django
-├── 📄 requirements.txt                   # Зависимости проекта
-├── 📄 db.sqlite3                         # База данных (разработка)
-├── 📄 .gitignore                         # Игнорируемые файлы Git
-├── 📄 readme.txt                         # Документация
-├── 📄 setup_authors_permissions.py       # Скрипт настройки прав
-└── 📄 directory_tree.py                  # Генератор структуры
+│   ├── js/
+│   └── images/
+├── manage.py                     # управляющий скрипт django
+├── requirements.txt              # зависимости проекта
+├── db.sqlite3                    # база данных (разработка)
+├── .gitignore                    # игнорируемые файлы git
+├── readme.txt                    # документация
+├── setup_authors_permissions.py  # скрипт настройки прав
+└── directory_tree.py             # генератор структуры
+```                 # Генератор структуры
 🏗️ Архитектура проекта
 Технологический стек
 Backend: Django 5.2, Django Allauth
