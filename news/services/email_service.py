@@ -1,31 +1,25 @@
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.conf import settings
+from django.contrib.auth.models import User
 
 
 class EmailService:
+
     @staticmethod
     def send_welcome_email(user, activation_url):
-        """
-        Отправка приветственного письма с ссылкой активации
-        """
-        subject = 'Добро пожаловать в News Portal! Подтвердите вашу регистрацию'
+        """Отправка приветственного письма с активацией"""
+        subject = 'Добро пожаловать в News Portal!'
 
-        # Контекст для шаблона
         context = {
-            'username': user.username,
+            'user': user,
             'activation_url': activation_url,
-            'site_url': settings.SITE_URL,
-            'support_email': 'support@newshub.com'
+            'site_url': settings.SITE_URL
         }
 
-        # HTML версия письма
+        text_content = render_to_string('emails/welcome_email.txt', context)
         html_content = render_to_string('emails/welcome_email.html', context)
 
-        # Текстовая версия письма (для клиентов без HTML поддержки)
-        text_content = render_to_string('emails/welcome_email.txt', context)
-
-        # Создание письма
         email = EmailMultiAlternatives(
             subject=subject,
             body=text_content,
@@ -33,30 +27,20 @@ class EmailService:
             to=[user.email]
         )
         email.attach_alternative(html_content, "text/html")
-
-        try:
-            email.send()
-            print(f"Приветственное письмо отправлено на {user.email}")
-            return True
-        except Exception as e:
-            print(f"Ошибка отправки email для {user.email}: {e}")
-            return False
+        email.send()
 
     @staticmethod
     def send_activation_success_email(user):
-        """
-        Отправка письма об успешной активации
-        """
+        """Отправка письма об успешной активации"""
         subject = 'Аккаунт успешно активирован!'
 
         context = {
-            'username': user.username,
-            'site_url': settings.SITE_URL,
-            'login_url': f"{settings.SITE_URL}/accounts/login/"
+            'user': user,
+            'site_url': settings.SITE_URL
         }
 
-        html_content = render_to_string('emails/activation_success.html', context)
         text_content = render_to_string('emails/activation_success.txt', context)
+        html_content = render_to_string('emails/activation_success.html', context)
 
         email = EmailMultiAlternatives(
             subject=subject,
@@ -65,11 +49,36 @@ class EmailService:
             to=[user.email]
         )
         email.attach_alternative(html_content, "text/html")
+        email.send()
 
-        try:
-            email.send()
-            print(f"Письмо об успешной активации отправлено на {user.email}")
-            return True
-        except Exception as e:
-            print(f"Ошибка отправки email активации для {user.email}: {e}")
-            return False
+    @staticmethod
+    def send_new_post_notification(post):
+        """Отправка уведомлений о новой новости подписчикам категорий"""
+        categories = post.categories.all()
+
+        for category in categories:
+            subscribers = category.subscribers.all()
+
+            for subscriber in subscribers:
+                if subscriber.email:
+                    subject = f'Новая новость в категории "{category.name}"'
+
+                    context = {
+                        'subscriber': subscriber,
+                        'post': post,
+                        'category': category,
+                        'site_url': settings.SITE_URL,
+                        'post_url': f"{settings.SITE_URL}/news/{post.id}/"
+                    }
+
+                    text_content = render_to_string('emails/new_post_notification.txt', context)
+                    html_content = render_to_string('emails/new_post_notification.html', context)
+
+                    email = EmailMultiAlternatives(
+                        subject=subject,
+                        body=text_content,
+                        from_email=settings.DEFAULT_FROM_EMAIL,
+                        to=[subscriber.email]
+                    )
+                    email.attach_alternative(html_content, "text/html")
+                    email.send()

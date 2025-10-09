@@ -1,112 +1,262 @@
-from django.db.models.signals import m2m_changed, post_save
+from django.db.models.signals import m2m_changed, post_save, post_delete
 from django.dispatch import receiver
 from django.contrib.auth.models import User, Group
 from django.db import transaction
 from django.conf import settings
+from django.core.cache import cache
+from django.utils import timezone
 from allauth.account.signals import user_signed_up
-from .models import Post
+from allauth.socialaccount.signals import social_account_added
+
+from .models import Post, Author, ActivationToken, Category, Subscription
+import logging
+
+# Настройка логгера
+logger = logging.getLogger('news.signals')
 
 
+# 🔄 СИГНАЛЫ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ
 @receiver(user_signed_up)
-def add_user_to_common_group(sender, request, user, **kwargs):
-    """Добавляет пользователя в группу common при регистрации"""
-    common_group, created = Group.objects.get_or_create(name='common')
-    user.groups.add(common_group)
-    user.save()
-    print(f"Пользователь {user.email} добавлен в группу common")
+def handle_user_signed_up(sender, request, user, **kwargs):
+    """
+    Обработка регистрации пользователя через django-allauth
+    """
+    logger.info(f"🆕 Регистрация пользователя через allauth: {user.email}")
+
+    try:
+        # Добавляем в группу common
+        common_group, created = Group.objects.get_or_create(name='common')
+        user.groups.add(common_group)
+
+        # Создаем профиль автора
+        author, author_created = Author.objects.get_or_create(user=user)
+
+        # Создаем токен активации
+        from .services.email_service import EmailService
+        activation_token = ActivationToken.create_token(user)
+
+        # Формируем URL для активации
+        activation_url = f"{settings.SITE_URL}/accounts/activate/{activation_token.token}/"
+
+        # Отправляем приветственное письмо
+        EmailService.send_welcome_email(user, activation_url)
+
+        logger.info(f"✅ Пользователь {user.email} зарегистрирован. Author создан: {author_created}")
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка при обработке регистрации пользователя {user.email}: {e}")
 
 
+@receiver(social_account_added)
+def handle_social_signup(sender, request, sociallogin, **kwargs):
+    """
+    Обработка регистрации через социальные сети
+    """
+    user = sociallogin.user
+    logger.info(f"🌐 Социальная регистрация: {user.email} через {sociallogin.account.provider}")
+
+    # Для социальных регистраций сразу активируем аккаунт
+    activation_token, created = ActivationToken.objects.get_or_create(user=user)
+    activation_token.activated = True
+    activation_token.save()
+
+
+@receiver(post_save, sender=User)
+def handle_user_post_save(sender, instance, created, **kwargs):
+    """
+    Резервный обработчик для пользователей (на случай если allauth не сработает)
+    """
+    if created and not instance.is_staff:
+        logger.info(f"🆕 Резервная обработка пользователя: {instance.username}")
+
+        # Проверяем, не обработан ли уже пользователь
+        if not instance.groups.filter(name='common').exists():
+            common_group, created = Group.objects.get_or_create(name='common')
+            instance.groups.add(common_group)
+
+            # Создаем профиль автора
+            Author.objects.get_or_create(user=instance)
+
+
+# 🔄 СИГНАЛЫ ДЛЯ АВТОРОВ
+@receiver(post_save, sender=User)
+def create_author_profile(sender, instance, created, **kwargs):
+    """
+    Создает профиль автора при создании пользователя
+    """
+    if created and not hasattr(instance, 'author'):
+        Author.objects.create(user=instance)
+        logger.info(f"👤 Создан профиль автора для: {instance.username}")
+
+
+@receiver(post_delete, sender=Author)
+def cleanup_user_group(sender, instance, **kwargs):
+    """
+    Очистка групп при удалении автора
+    """
+    try:
+        instance.user.groups.filter(name='authors').delete()
+        logger.info(f"🧹 Удалены группы автора для: {instance.user.username}")
+    except Exception as e:
+        logger.error(f"❌ Ошибка при очистке групп: {e}")
+
+
+# 🔄 СИГНАЛЫ ДЛЯ ПОСТОВ И УВЕДОМЛЕНИЙ
 @receiver(m2m_changed, sender=Post.categories.through)
-def send_notifications_on_categories_added(sender, instance, action, **kwargs):
+def handle_post_categories_changed(sender, instance, action, **kwargs):
     """
-    Отправляет уведомления когда к посту добавляются категории через ManyToMany
+    Обрабатывает изменения в категориях поста
     """
-    print(f"🎯 Сигнал ManyToMany: action={action}, пост='{instance.title}'")
+    logger.debug(f"🎯 Сигнал M2M: action={action}, пост='{instance.title}'")
 
-    # Обрабатываем только добавление связей
-    if action == "post_add":
-        print(f"🚀 Категории добавлены к посту '{instance.title}'")
+    if action == "post_add" and instance.post_type == Post.NEWS:
+        logger.info(f"🚀 Новые категории добавлены к новости '{instance.title}'")
 
-        # Используем transaction.on_commit чтобы убедиться, что все сохранено в БД
+        # Используем transaction.on_commit для гарантии сохранения в БД
         transaction.on_commit(lambda: process_post_notifications(instance))
+
+
+@receiver(post_save, sender=Post)
+def handle_post_save(sender, instance, created, **kwargs):
+    """
+    Обрабатывает сохранение поста
+    """
+    if created:
+        logger.info(f"📝 Создан новый пост: '{instance.title}' (тип: {instance.get_post_type_display()})")
+
+        # Для новых новостей с уже установленными категориями
+        if (created and
+                instance.post_type == Post.NEWS and
+                instance.categories.exists()):
+            logger.info(f"📧 Запланирована отправка уведомлений для новой новости")
+            transaction.on_commit(lambda: process_post_notifications(instance))
+
+        # Инвалидация кэша
+        cache_keys = [
+            'latest_news',
+            'news_list',
+            f'post_{instance.id}',
+            'categories_list'
+        ]
+        for key in cache_keys:
+            cache.delete(key)
+
+        logger.debug("🧹 Кэш очищен после создания поста")
 
 
 def process_post_notifications(post):
     """
     Обрабатывает отправку уведомлений после коммита транзакции
     """
-    print(f"📧 Запуск отправки уведомлений для поста: '{post.title}' (ID: {post.pk})")
+    logger.info(f"📧 Начало обработки уведомлений для поста: '{post.title}' (ID: {post.pk})")
 
     try:
-        # Перезагружаем пост с актуальными данными из БД
-        refreshed_post = Post.objects.get(pk=post.pk)
+        # Перезагружаем пост для получения актуальных данных
+        refreshed_post = Post.objects.select_related('author__user').prefetch_related('categories').get(pk=post.pk)
         categories = refreshed_post.categories.all()
 
-        print(f"📂 Категории поста после коммита: {[cat.name for cat in categories]}")
-        print(f"🔢 Количество категорий: {categories.count()}")
+        logger.info(f"📂 Найдено категорий: {categories.count()}")
+        logger.info(f"🏷️ Категории: {[cat.name for cat in categories]}")
 
-        if categories:
-            print(f"👥 Начинаем отправку уведомлений для {categories.count()} категорий...")
-            # Используем существующий метод для отправки уведомлений
-            refreshed_post.send_notifications_to_subscribers()
-            print("✅ Уведомления успешно отправлены!")
+        if categories.exists():
+            total_subscribers = sum(cat.subscribers.count() for cat in categories)
+            logger.info(f"👥 Всего подписчиков для уведомлений: {total_subscribers}")
+
+            if total_subscribers > 0:
+                # Используем существующий метод для отправки уведомлений
+                refreshed_post.send_notifications_to_subscribers()
+                logger.info("✅ Уведомления успешно отправлены!")
+            else:
+                logger.info("ℹ️ Нет подписчиков для отправки уведомлений")
         else:
-            print("⚠️ Категории не найдены - возможно ошибка в создании связей")
+            logger.warning("⚠️ У поста нет категорий - уведомления не отправляются")
 
     except Post.DoesNotExist:
-        print(f"❌ Пост с ID {post.pk} не найден в базе данных")
+        logger.error(f"❌ Пост с ID {post.pk} не найден в базе данных")
     except Exception as e:
-        print(f"❌ Ошибка при отправке уведомлений: {e}")
+        logger.error(f"❌ Критическая ошибка при отправке уведомлений: {e}")
+        # Можно добавить отправку ошибки администратору
+        # send_admin_notification(f"Ошибка уведомлений: {e}")
 
 
-# 🆕 Дополнительный сигнал для постов созданных через админку
-@receiver(post_save, sender=Post)
-def check_post_categories_after_save(sender, instance, created, **kwargs):
+# 🔄 СИГНАЛЫ ДЛЯ АКТИВАЦИИ
+@receiver(post_save, sender=ActivationToken)
+def handle_activation_token_save(sender, instance, created, **kwargs):
     """
-    Проверяем категории после сохранения поста (для отладки)
+    Обрабатывает изменения в токенах активации
+    """
+    if instance.activated and not created:  # Только при активации существующего токена
+        logger.info(f"✅ Аккаунт активирован: {instance.user.username}")
+
+        try:
+            from .services.email_service import EmailService
+            EmailService.send_activation_success_email(instance.user)
+            logger.info(f"📧 Письмо об успешной активации отправлено на {instance.user.email}")
+
+            # Добавляем пользователя в группу authors при необходимости
+            if not instance.user.groups.filter(name='authors').exists():
+                authors_group, created = Group.objects.get_or_create(name='authors')
+                instance.user.groups.add(authors_group)
+                logger.info(f"👤 Пользователь {instance.user.username} добавлен в группу authors")
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка при обработке активации: {e}")
+
+
+# 🔄 СИГНАЛЫ ДЛЯ ПОДПИСОК
+@receiver(post_save, sender=Subscription)
+def handle_new_subscription(sender, instance, created, **kwargs):
+    """
+    Обрабатывает новые подписки
     """
     if created:
-        print(f"🔍 Пост создан: '{instance.title}', категории: {instance.categories.count()}")
+        logger.info(f"📩 Новая подписка: {instance.user.username} -> {instance.category.name}")
+
+        # Инвалидация кэша подписок
+        cache.delete(f"user_{instance.user.id}_subscriptions")
+        cache.delete(f"category_{instance.category.id}_subscribers_count")
 
 
-@receiver(post_save, sender=User)
-def handle_user_registration(sender, instance, created, **kwargs):
+@receiver(post_delete, sender=Subscription)
+def handle_subscription_removed(sender, instance, **kwargs):
     """
-    Обработка новой регистрации пользователя
+    Обрабатывает удаление подписок
     """
-    if created and not instance.is_staff:  # Исключаем staff пользователей
-        print(f"🆕 Обработка регистрации пользователя: {instance.username}")
+    logger.info(f"📪 Удалена подписка: {instance.user.username} -> {instance.category.name}")
 
-        # Добавляем в группу common
-        common_group, created = Group.objects.get_or_create(name='common')
-        instance.groups.add(common_group)
-
-        # Импортируем здесь, чтобы избежать циклических импортов
-        from .models import ActivationToken
-        from .services.email_service import EmailService
-
-        # Создаем токен активации
-        activation_token = ActivationToken.create_token(instance)
-
-        # Формируем URL для активации
-        activation_url = f"{settings.SITE_URL}/accounts/activate/{activation_token.token}/"
-
-        # Отправляем приветственное письмо
-        EmailService.send_welcome_email(instance, activation_url)
-        print(f"📧 Приветственное письмо отправлено на {instance.email}")
+    # Инвалидация кэша подписок
+    cache.delete(f"user_{instance.user.id}_subscriptions")
+    cache.delete(f"category_{instance.category.id}_subscribers_count")
 
 
-@receiver(post_save, sender='news.ActivationToken')  # Используем строку для избежания циклических импортов
-def handle_activation(sender, instance, **kwargs):
+# 🔄 СИГНАЛЫ ДЛЯ ОЧИСТКИ
+@receiver(post_save, sender='news.Comment')
+def handle_new_comment(sender, instance, created, **kwargs):
     """
-    Обработка успешной активации аккаунта
+    Обрабатывает новые комментарии
     """
-    if instance.activated:
-        print(f"✅ Аккаунт активирован: {instance.user.username}")
+    if created:
+        logger.info(f"💬 Новый комментарий от {instance.user.username} к посту '{instance.post.title}'")
 
-        # Импортируем здесь, чтобы избежать циклических импортов
-        from .services.email_service import EmailService
+        # Инвалидация кэша комментариев
+        cache.delete(f"post_{instance.post.id}_comments")
+        cache.delete(f"post_{instance.post.id}_comments_count")
 
-        # Отправляем письмо об успешной активации
-        EmailService.send_activation_success_email(instance.user)
-        print(f"📧 Письмо об успешной активации отправлено на {instance.user.email}")
+
+def cleanup_expired_tokens():
+    """
+    Функция для очистки просроченных токенов активации
+    """
+    try:
+        expired_tokens = ActivationToken.objects.filter(
+            activated=False,
+            created_at__lt=timezone.now() - timezone.timedelta(days=7)
+        )
+
+        count = expired_tokens.count()
+        if count > 0:
+            expired_tokens.delete()
+            logger.info(f"🧹 Очищено {count} просроченных токенов активации")
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка при очистке токенов: {e}")
