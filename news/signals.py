@@ -9,6 +9,7 @@ from allauth.account.signals import user_signed_up
 from allauth.socialaccount.signals import social_account_added
 
 from .models import Post, Author, ActivationToken, Category, Subscription
+from .services.email_service import EmailService
 import logging
 
 # Настройка логгера
@@ -32,7 +33,6 @@ def handle_user_signed_up(sender, request, user, **kwargs):
         author, author_created = Author.objects.get_or_create(user=user)
 
         # Создаем токен активации
-        from .services.email_service import EmailService
         activation_token = ActivationToken.create_token(user)
 
         # Формируем URL для активации
@@ -109,8 +109,8 @@ def handle_post_categories_changed(sender, instance, action, **kwargs):
     """
     logger.debug(f"🎯 Сигнал M2M: action={action}, пост='{instance.title}'")
 
-    if action == "post_add" and instance.post_type == Post.NEWS:
-        logger.info(f"🚀 Новые категории добавлены к новости '{instance.title}'")
+    if action == "post_add":
+        logger.info(f"🚀 Новые категории добавлены к посту '{instance.title}'")
 
         # Используем transaction.on_commit для гарантии сохранения в БД
         transaction.on_commit(lambda: process_post_notifications(instance))
@@ -124,11 +124,9 @@ def handle_post_save(sender, instance, created, **kwargs):
     if created:
         logger.info(f"📝 Создан новый пост: '{instance.title}' (тип: {instance.get_post_type_display()})")
 
-        # Для новых новостей с уже установленными категориями
-        if (created and
-                instance.post_type == Post.NEWS and
-                instance.categories.exists()):
-            logger.info(f"📧 Запланирована отправка уведомлений для новой новости")
+        # Для новых постов с уже установленными категориями
+        if created and instance.categories.exists():
+            logger.info(f"📧 Запланирована отправка уведомлений для нового поста")
             transaction.on_commit(lambda: process_post_notifications(instance))
 
         # Инвалидация кэша
@@ -153,30 +151,21 @@ def process_post_notifications(post):
     try:
         # Перезагружаем пост для получения актуальных данных
         refreshed_post = Post.objects.select_related('author__user').prefetch_related('categories').get(pk=post.pk)
-        categories = refreshed_post.categories.all()
 
-        logger.info(f"📂 Найдено категорий: {categories.count()}")
-        logger.info(f"🏷️ Категории: {[cat.name for cat in categories]}")
-
-        if categories.exists():
-            total_subscribers = sum(cat.subscribers.count() for cat in categories)
-            logger.info(f"👥 Всего подписчиков для уведомлений: {total_subscribers}")
-
-            if total_subscribers > 0:
-                # Используем существующий метод для отправки уведомлений
-                refreshed_post.send_notifications_to_subscribers()
-                logger.info("✅ Уведомления успешно отправлены!")
-            else:
-                logger.info("ℹ️ Нет подписчиков для отправки уведомлений")
-        else:
-            logger.warning("⚠️ У поста нет категорий - уведомления не отправляются")
+        # Отправляем уведомления в зависимости от типа поста
+        if refreshed_post.post_type == Post.NEWS:
+            # Для новостей используем стандартный метод
+            refreshed_post.send_notifications_to_subscribers()
+            logger.info("✅ Уведомления о новости успешно отправлены!")
+        elif refreshed_post.post_type == Post.ARTICLE:
+            # Для статей используем специальный метод из EmailService
+            EmailService.send_immediate_article_notification(refreshed_post)
+            logger.info("✅ Уведомления о статье успешно отправлены!")
 
     except Post.DoesNotExist:
         logger.error(f"❌ Пост с ID {post.pk} не найден в базе данных")
     except Exception as e:
         logger.error(f"❌ Критическая ошибка при отправке уведомлений: {e}")
-        # Можно добавить отправку ошибки администратору
-        # send_admin_notification(f"Ошибка уведомлений: {e}")
 
 
 # 🔄 СИГНАЛЫ ДЛЯ АКТИВАЦИИ
@@ -189,7 +178,6 @@ def handle_activation_token_save(sender, instance, created, **kwargs):
         logger.info(f"✅ Аккаунт активирован: {instance.user.username}")
 
         try:
-            from .services.email_service import EmailService
             EmailService.send_activation_success_email(instance.user)
             logger.info(f"📧 Письмо об успешной активации отправлено на {instance.user.email}")
 
@@ -260,3 +248,13 @@ def cleanup_expired_tokens():
 
     except Exception as e:
         logger.error(f"❌ Ошибка при очистке токенов: {e}")
+
+
+# 🆕 СИГНАЛ ДЛЯ ЕЖЕНЕДЕЛЬНЫХ РАССЫЛОК
+@receiver(post_save, sender=Post)
+def handle_new_article_for_weekly_digest(sender, instance, created, **kwargs):
+    """
+    Обрабатывает создание новых статей для еженедельной рассылки
+    """
+    if created and instance.post_type == Post.ARTICLE:
+        logger.info(f"📄 Новая статья создана: '{instance.title}' - будет включена в еженедельный дайджест")

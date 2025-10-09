@@ -65,13 +65,6 @@ def subscribe_to_category(request, category_id):
     category = get_object_or_404(Category, id=category_id)
     logger.info(f"📦 Найдена категория: {category.name}")
 
-    # Проверяем существующие подписки
-    existing_subscription = Subscription.objects.filter(
-        user=request.user,
-        category=category
-    ).exists()
-    logger.info(f"📊 Подписка уже существует: {existing_subscription}")
-
     subscription, created = Subscription.objects.get_or_create(
         user=request.user,
         category=category
@@ -79,16 +72,44 @@ def subscribe_to_category(request, category_id):
 
     if created:
         logger.info(f"✅ СОЗДАНА НОВАЯ ПОДПИСКА: {request.user.username} -> {category.name}")
-        messages.success(request, f'✅ Вы успешно подписались на категорию "{category.name}"!')
+        messages.success(
+            request,
+            f'✅ Вы успешно подписались на категорию "{category.name}"! '
+            f'Теперь вы будете получать уведомления о новых статьях и еженедельные дайджесты.'
+        )
     else:
         logger.info(f"ℹ️ ПОДПИСКА УЖЕ СУЩЕСТВУЕТ: {request.user.username} -> {category.name}")
         messages.info(request, f'ℹ️ Вы уже подписаны на категорию "{category.name}"')
 
-    # Проверяем общее количество подписок пользователя
-    user_subscriptions_count = Subscription.objects.filter(user=request.user).count()
-    logger.info(f"📈 Всего подписок у пользователя: {user_subscriptions_count}")
-
     return redirect('category_posts', category_id=category_id)
+
+
+def category_posts(request, category_id):
+    """Страница с постами категории"""
+    logger.info(f"🔔 ЗАПРОС КАТЕГОРИЯ: категория_id={category_id}")
+
+    category = get_object_or_404(Category, id=category_id)
+    posts = Post.objects.filter(categories=category).order_by('-created_at')
+
+    paginator = Paginator(posts, 10)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    is_subscribed = False
+    if request.user.is_authenticated:
+        is_subscribed = Subscription.objects.filter(
+            user=request.user,
+            category=category
+        ).exists()
+
+    context = {
+        'category': category,
+        'page_obj': page_obj,
+        'is_subscribed': is_subscribed,
+        'categories': Category.objects.all(),
+        'subscribers_count': category.subscribers.count()
+    }
+    return render(request, 'news/category_posts.html', context)
 
 
 @login_required

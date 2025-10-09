@@ -58,6 +58,11 @@ class Category(models.Model):
     def get_subscribers_count(self):
         return self.subscribers.count()
 
+    def get_weekly_posts(self):
+        """Возвращает посты за последнюю неделю"""
+        week_ago = timezone.now() - timedelta(days=7)
+        return self.post_set.filter(created_at__gte=week_ago, post_type=Post.ARTICLE)
+
     def __str__(self):
         return self.name
 
@@ -66,12 +71,20 @@ class Subscription(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     category = models.ForeignKey(Category, on_delete=models.CASCADE)
     subscribed_at = models.DateTimeField(auto_now_add=True)
+    # 🆕 Поле для отслеживания последней рассылки
+    last_weekly_sent = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         unique_together = ['user', 'category']  # Предотвращает дублирование подписок
 
     def __str__(self):
         return f"{self.user.username} - {self.category.name}"
+
+    def needs_weekly_digest(self):
+        """Проверяет, нужно ли отправлять еженедельную рассылку"""
+        if not self.last_weekly_sent:
+            return True
+        return timezone.now() - self.last_weekly_sent > timedelta(days=7)
 
 
 class Post(models.Model):
@@ -90,6 +103,8 @@ class Post(models.Model):
     rating = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # 🆕 Поле для отслеживания отправки уведомлений
+    notifications_sent = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['-created_at']  # Сортировка по умолчанию - новые сначала
@@ -126,8 +141,8 @@ class Post(models.Model):
 
     def send_notifications_to_subscribers(self):
         """Отправляет уведомления подписчикам категорий поста"""
-        if self.post_type != self.NEWS:
-            return  # Отправляем уведомления только для новостей
+        if self.notifications_sent:
+            return
 
         categories = self.categories.all()
         for category in categories:
@@ -135,10 +150,21 @@ class Post(models.Model):
             for subscriber in subscribers:
                 self._send_single_notification(subscriber, category)
 
+        # Помечаем, что уведомления отправлены
+        self.notifications_sent = True
+        self.save()
+
     def _send_single_notification(self, subscriber, category):
         """Отправляет одно уведомление конкретному подписчику"""
         try:
-            subject = f'📰 Новая новость в категории "{category.name}"'
+            if self.post_type == self.NEWS:
+                subject = f'📰 Новая новость в категории "{category.name}"'
+                template = 'emails/new_post_notification.html'
+                text_template = 'emails/new_post_notification.txt'
+            else:
+                subject = f'📄 Новая статья в категории "{category.name}"'
+                template = 'emails/new_article_notification.html'
+                text_template = 'emails/new_article_notification.txt'
 
             context = {
                 'username': subscriber.username,
@@ -152,10 +178,10 @@ class Post(models.Model):
             }
 
             # Текстовая версия
-            message = render_to_string('news/email_notification.txt', context)
+            message = render_to_string(text_template, context)
 
             # HTML версия
-            html_message = render_to_string('news/email_notification.html', context)
+            html_message = render_to_string(template, context)
 
             send_mail(
                 subject=subject,
